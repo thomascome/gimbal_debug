@@ -4,9 +4,10 @@ Small PyQt5 UI for reading MAVLink messages from a serial port.
 
 The parser is imported from `../Gimbal_update_tool/gimbal_py.py`, so it uses the same generated Goertek/Aerora MAVLink dialect as the update tool.
 
-Only the serial port is configurable in the UI. Other serial settings are fixed in code:
+Select the serial port and baud rate in the UI. The baud-rate list includes common values and also accepts a custom positive integer; its default is `500000`.
 
-- Baud: `500000`
+Other serial settings are fixed in code:
+
 - Format: `8N1`
 - Flow control: disabled
 - Timeout: `0.10s`
@@ -23,7 +24,7 @@ pip3 install PyQt5 pyserial
 python3 serial_mavlink_ui.py
 ```
 
-Select the serial port, then press `Connect`. Decoded MAVLink messages are shown as JSON. `GIMBAL_DEBUGDATA.debug_data` is converted to ASCII text like the update tool monitor code.
+Select the serial port and baud rate, then press `Connect`. Decoded MAVLink messages are shown as JSON. `GIMBAL_DEBUGDATA.debug_data` is converted to ASCII text like the update tool monitor code.
 
 After connecting, the tool also sends one MAVLink `HEARTBEAT` per second as a ground control station:
 

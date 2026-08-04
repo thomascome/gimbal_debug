@@ -38,6 +38,8 @@ SERIAL_CONFIG = {
     "rtscts": False,
     "dsrdtr": False,
 }
+DEFAULT_BAUDRATE = SERIAL_CONFIG["baudrate"]
+COMMON_BAUDRATES = (9600, 19200, 38400, 57600, 115200, 230400, 460800, 500000, 921600, 1000000)
 HEARTBEAT_PERIOD_S = 1.0
 ATTITUDE_CONTROL_PERIOD_S = 0.10
 GCS_SYSTEM_ID = 255
@@ -271,6 +273,11 @@ class MainWindow(QtWidgets.QMainWindow):
         config_layout.setVerticalSpacing(8)
 
         self.port_box = QtWidgets.QComboBox()
+        self.baudrate_box = QtWidgets.QComboBox()
+        self.baudrate_box.setEditable(True)
+        for baudrate in COMMON_BAUDRATES:
+            self.baudrate_box.addItem(str(baudrate), baudrate)
+        self.baudrate_box.setCurrentText(str(DEFAULT_BAUDRATE))
         self.refresh_button = QtWidgets.QPushButton("Refresh")
         self.connect_button = QtWidgets.QPushButton("Connect")
         self.clear_button = QtWidgets.QPushButton("Clear")
@@ -281,6 +288,8 @@ class MainWindow(QtWidgets.QMainWindow):
         config_layout.addWidget(self.port_box, 0, 1)
         config_layout.addWidget(self.refresh_button, 0, 2)
         config_layout.addWidget(self.connect_button, 0, 3)
+        config_layout.addWidget(QtWidgets.QLabel("Baud rate"), 1, 0)
+        config_layout.addWidget(self.baudrate_box, 1, 1)
         config_layout.setColumnStretch(1, 1)
 
         root.addWidget(config)
@@ -427,8 +436,17 @@ class MainWindow(QtWidgets.QMainWindow):
             self.statusBar().showMessage("No serial port selected")
             return
 
+        try:
+            baudrate = int(self.baudrate_box.currentText())
+            if baudrate <= 0:
+                raise ValueError
+        except ValueError:
+            self.statusBar().showMessage("Baud rate must be a positive integer")
+            return
+
         config = dict(SERIAL_CONFIG)
         config["port"] = port
+        config["baudrate"] = baudrate
 
         self.worker = SerialMavlinkWorker(config, self)
         self.worker.message_received.connect(self.append_log)
@@ -462,6 +480,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _set_config_enabled(self, enabled):
         for widget in (
             self.port_box,
+            self.baudrate_box,
             self.refresh_button,
         ):
             widget.setEnabled(enabled)
