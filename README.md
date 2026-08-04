@@ -24,6 +24,10 @@ pip3 install PyQt5 pyserial
 python3 serial_mavlink_ui.py
 ```
 
+## Windows package
+
+The GitHub Actions **Build Windows package** workflow runs manually or when a tag beginning with `v` is pushed. It creates `GimbalMavlinkSerialReader.exe` and uploads it as the `GimbalMavlinkSerialReader-windows` workflow artifact.
+
 Select the serial port and baud rate, then press `Connect`. Decoded MAVLink messages are shown as JSON. `GIMBAL_DEBUGDATA.debug_data` is converted to ASCII text like the update tool monitor code.
 
 After connecting, the tool also sends one MAVLink `HEARTBEAT` per second as a ground control station:
