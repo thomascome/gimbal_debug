@@ -42,6 +42,8 @@ DEFAULT_BAUDRATE = SERIAL_CONFIG["baudrate"]
 COMMON_BAUDRATES = (9600, 19200, 38400, 57600, 115200, 230400, 460800, 500000, 921600, 1000000)
 HEARTBEAT_PERIOD_S = 1.0
 ATTITUDE_CONTROL_PERIOD_S = 0.10
+YAW_MAX_RATE_DPS = 30
+PITCH_MAX_RATE_DPS = 10
 GCS_SYSTEM_ID = 255
 GCS_COMPONENT_ID = 190
 GIMBAL_TARGET_SYSTEM = 1
@@ -350,8 +352,8 @@ class MainWindow(QtWidgets.QMainWindow):
         controls_layout.setHorizontalSpacing(12)
         controls_layout.setVerticalSpacing(8)
 
-        self.yaw_slider = self._make_center_slider()
-        self.pitch_slider = self._make_center_slider()
+        self.yaw_slider = self._make_center_slider(YAW_MAX_RATE_DPS)
+        self.pitch_slider = self._make_center_slider(PITCH_MAX_RATE_DPS)
         self.yaw_rate_value = QtWidgets.QLabel("0 deg/s")
         self.pitch_rate_value = QtWidgets.QLabel("0 deg/s")
         self.center_button = QtWidgets.QPushButton("Center")
@@ -392,9 +394,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pitch_slider.sliderReleased.connect(self.center_pitch_slider)
         self.center_button.clicked.connect(self.reset_gimbal_center)
 
-    def _make_center_slider(self):
+    def _make_center_slider(self, maximum_rate_dps):
         slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        slider.setRange(-10, 10)
+        slider.setRange(-maximum_rate_dps, maximum_rate_dps)
         slider.setValue(0)
         slider.setTickInterval(1)
         slider.setTickPosition(QtWidgets.QSlider.TicksBelow)
