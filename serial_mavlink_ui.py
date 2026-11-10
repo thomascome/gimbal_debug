@@ -42,8 +42,8 @@ DEFAULT_BAUDRATE = SERIAL_CONFIG["baudrate"]
 COMMON_BAUDRATES = (9600, 19200, 38400, 57600, 115200, 230400, 460800, 500000, 921600, 1000000)
 HEARTBEAT_PERIOD_S = 1.0
 ATTITUDE_CONTROL_PERIOD_S = 0.10
-YAW_MAX_RATE_DPS = 30
-PITCH_MAX_RATE_DPS = 10
+CONTROL_MIN_PERCENT = -100
+CONTROL_MAX_PERCENT = 100
 GCS_SYSTEM_ID = 255
 GCS_COMPONENT_ID = 190
 GIMBAL_TARGET_SYSTEM = 1
@@ -80,14 +80,11 @@ class SerialMavlinkWorker(QtCore.QThread):
         self._port = None
         self._mavlink = None
         self._control_lock = threading.Lock()
-        self._yaw_rate_dps = 0.0
-        self._pitch_rate_dps = 0.0
-        self._target_yaw_deg = 0.0
-        self._target_pitch_deg = 0.0
-        self._have_target = False
+        self._yaw_control_percent = 0.0
+        self._pitch_control_percent = 0.0
         self._heartbeat_count = 0
         self._mount_config_sent = False
-        self._center_requested = False
+        self._stop_requested = False
 
     def stop(self):
         self._running = False
@@ -142,36 +139,16 @@ class SerialMavlinkWorker(QtCore.QThread):
         self.message_received.emit("[%s] %s" % (timestamp, format_mavlink_message(mavmsg)))
         if mavmsg.get_type() == "MOUNT_ORIENTATION":
             data = mavmsg.to_dict()
-            self._sync_target_from_mount_orientation(data)
             self.mount_orientation_received.emit(data)
 
     @QtCore.pyqtSlot(float, float)
-    def set_control_rates(self, yaw_rate_dps, pitch_rate_dps):
+    def set_control_percentages(self, yaw_control_percent, pitch_control_percent):
         with self._control_lock:
-            self._yaw_rate_dps = yaw_rate_dps
-            self._pitch_rate_dps = pitch_rate_dps
-
-    @QtCore.pyqtSlot()
-    def request_center(self):
-        with self._control_lock:
-            self._yaw_rate_dps = 0.0
-            self._pitch_rate_dps = 0.0
-            self._target_yaw_deg = 0.0
-            self._target_pitch_deg = 0.0
-            self._have_target = True
-            self._center_requested = True
-
-    def _sync_target_from_mount_orientation(self, data):
-        with self._control_lock:
-            if self._have_target:
-                return
-            yaw = data.get("yaw")
-            pitch = data.get("pitch")
-            if yaw is None or pitch is None:
-                return
-            self._target_yaw_deg = float(yaw)
-            self._target_pitch_deg = float(pitch)
-            self._have_target = True
+            was_moving = self._yaw_control_percent != 0.0 or self._pitch_control_percent != 0.0
+            self._yaw_control_percent = yaw_control_percent
+            self._pitch_control_percent = pitch_control_percent
+            if was_moving and yaw_control_percent == 0.0 and pitch_control_percent == 0.0:
+                self._stop_requested = True
 
     def _send_heartbeat(self):
         try:
@@ -192,18 +169,15 @@ class SerialMavlinkWorker(QtCore.QThread):
 
     def _send_attitude_control(self, dt):
         with self._control_lock:
-            yaw_rate = self._yaw_rate_dps
-            pitch_rate = self._pitch_rate_dps
-            center_requested = self._center_requested
-            self._center_requested = False
-            if yaw_rate == 0.0 and pitch_rate == 0.0 and not center_requested:
+            yaw_control_percent = self._yaw_control_percent
+            pitch_control_percent = self._pitch_control_percent
+            is_moving = yaw_control_percent != 0.0 or pitch_control_percent != 0.0
+            if self._stop_requested:
+                yaw_control_percent = 0.0
+                pitch_control_percent = 0.0
+                self._stop_requested = False
+            elif not is_moving:
                 return
-            if not center_requested:
-                self._target_yaw_deg += yaw_rate * dt
-                self._target_pitch_deg += pitch_rate * dt
-                self._target_pitch_deg = max(-90.0, min(90.0, self._target_pitch_deg))
-            target_yaw = self._target_yaw_deg
-            target_pitch = self._target_pitch_deg
 
         try:
             if not self._mount_config_sent:
@@ -214,9 +188,9 @@ class SerialMavlinkWorker(QtCore.QThread):
                 GIMBAL_TARGET_COMPONENT,
                 gimbal_py.MAV_CMD_DO_MOUNT_CONTROL,
                 0,
-                target_pitch,
+                pitch_control_percent,
                 0,
-                target_yaw,
+                yaw_control_percent,
                 0,
                 0,
                 0,
@@ -237,8 +211,8 @@ class SerialMavlinkWorker(QtCore.QThread):
             0,
             0,
             0,
-            0,
-            0,
+            1,
+            1,
         )
 
     def _close(self):
@@ -254,9 +228,9 @@ class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self.worker = None
-        self.yaw_rate_dps = 0.0
-        self.pitch_rate_dps = 0.0
-        self.setWindowTitle("Gimbal MAVLink Serial Reader")
+        self.yaw_control_percent = 0.0
+        self.pitch_control_percent = 0.0
+        self.setWindowTitle("Gimbal Debug")
         self.resize(920, 640)
         self._build_ui()
         self.refresh_ports()
@@ -352,19 +326,17 @@ class MainWindow(QtWidgets.QMainWindow):
         controls_layout.setHorizontalSpacing(12)
         controls_layout.setVerticalSpacing(8)
 
-        self.yaw_slider = self._make_center_slider(YAW_MAX_RATE_DPS)
-        self.pitch_slider = self._make_center_slider(PITCH_MAX_RATE_DPS)
-        self.yaw_rate_value = QtWidgets.QLabel("0 deg/s")
-        self.pitch_rate_value = QtWidgets.QLabel("0 deg/s")
-        self.center_button = QtWidgets.QPushButton("Center")
+        self.yaw_slider = self._make_center_slider()
+        self.pitch_slider = self._make_center_slider()
+        self.yaw_control_value = QtWidgets.QLabel("0%")
+        self.pitch_control_value = QtWidgets.QLabel("0%")
 
         controls_layout.addWidget(QtWidgets.QLabel("Yaw"), 0, 0)
         controls_layout.addWidget(self.yaw_slider, 0, 1)
-        controls_layout.addWidget(self.yaw_rate_value, 0, 2)
+        controls_layout.addWidget(self.yaw_control_value, 0, 2)
         controls_layout.addWidget(QtWidgets.QLabel("Pitch"), 1, 0)
         controls_layout.addWidget(self.pitch_slider, 1, 1)
-        controls_layout.addWidget(self.pitch_rate_value, 1, 2)
-        controls_layout.addWidget(self.center_button, 0, 3, 2, 1)
+        controls_layout.addWidget(self.pitch_control_value, 1, 2)
         controls_layout.setColumnStretch(1, 1)
 
         root.addWidget(controls)
@@ -392,11 +364,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pitch_slider.valueChanged.connect(self.pitch_slider_changed)
         self.yaw_slider.sliderReleased.connect(self.center_yaw_slider)
         self.pitch_slider.sliderReleased.connect(self.center_pitch_slider)
-        self.center_button.clicked.connect(self.reset_gimbal_center)
 
-    def _make_center_slider(self, maximum_rate_dps):
+    def _make_center_slider(self):
         slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        slider.setRange(-maximum_rate_dps, maximum_rate_dps)
+        slider.setRange(CONTROL_MIN_PERCENT, CONTROL_MAX_PERCENT)
         slider.setValue(0)
         slider.setTickInterval(1)
         slider.setTickPosition(QtWidgets.QSlider.TicksBelow)
@@ -514,13 +485,13 @@ class MainWindow(QtWidgets.QMainWindow):
         return "%.3f deg" % value
 
     def yaw_slider_changed(self, value):
-        self.yaw_rate_dps = float(value)
-        self.yaw_rate_value.setText("%+d deg/s" % value)
+        self.yaw_control_percent = float(value)
+        self.yaw_control_value.setText("%+d%%" % value)
         self._publish_control_rates()
 
     def pitch_slider_changed(self, value):
-        self.pitch_rate_dps = float(value)
-        self.pitch_rate_value.setText("%+d deg/s" % value)
+        self.pitch_control_percent = float(value)
+        self.pitch_control_value.setText("%+d%%" % value)
         self._publish_control_rates()
 
     def center_yaw_slider(self):
@@ -531,18 +502,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _publish_control_rates(self):
         if self.worker is not None:
-            self.worker.set_control_rates(self.yaw_rate_dps, self.pitch_rate_dps)
-
-    def reset_gimbal_center(self):
-        self.yaw_slider.setValue(0)
-        self.pitch_slider.setValue(0)
-        self.yaw_rate_dps = 0.0
-        self.pitch_rate_dps = 0.0
-        self.yaw_rate_value.setText("0 deg/s")
-        self.pitch_rate_value.setText("0 deg/s")
-        if self.worker is not None:
-            self.worker.request_center()
-            self.statusBar().showMessage("Center command sent")
+            self.worker.set_control_percentages(self.yaw_control_percent, self.pitch_control_percent)
 
     def closeEvent(self, event):
         if self.worker is not None:

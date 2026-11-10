@@ -46,10 +46,9 @@ The `MAVLink Link` panel shows:
 
 The yaw and pitch sliders send `COMMAND_LONG / MAV_CMD_DO_MOUNT_CONTROL` commands, matching the firmware path in `../Gimbal_APP/CODE/communication/ComTask.c` and `../Gimbal_APP/CODE/Instruction/FCDataConvert.c`:
 
-- Yaw slider range: `-30` to `+30` degrees per second
-- Pitch slider range: `-10` to `+10` degrees per second
-- Release behavior: slider returns to center and stops changing that axis
-- `Center` button: stops slider motion and sends pitch/roll/yaw `0` in `MAV_CMD_DO_MOUNT_CONTROL`
+- Slider range: `-100%` to `+100%`
+- Release behavior: slider returns to center and sends an explicit zero-speed command once both axes are centered
+- The sliders control speed proportion only; no angle or degrees-per-second value is displayed
 - Send rate: `10 Hz` while either slider is off center
 - Target system/component: `1/154`
-- Before first control command, the tool sends `MAV_CMD_DO_MOUNT_CONFIGURE` with pitch/yaw input mode `0` so both axes use angle targets
+- Before the first control command, the tool sends `MAV_CMD_DO_MOUNT_CONFIGURE` with pitch/yaw input mode `1` so both axes use angular-rate control
