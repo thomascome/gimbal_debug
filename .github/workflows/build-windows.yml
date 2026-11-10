@@ -31,11 +31,11 @@ jobs:
       - name: Build executable
         run: >
           pyinstaller --noconfirm --clean --onefile --windowed
-          --name GimbalMavlinkSerialReader serial_mavlink_ui.py
+          --name "Gimbal Debug" serial_mavlink_ui.py
 
       - name: Upload Windows package
         uses: actions/upload-artifact@v4
         with:
-          name: GimbalMavlinkSerialReader-windows
-          path: dist/GimbalMavlinkSerialReader.exe
+          name: Gimbal Debug-windows
+          path: dist/Gimbal Debug.exe
           if-no-files-found: error
